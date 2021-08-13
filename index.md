@@ -4,12 +4,19 @@ author: "Olivier Gimenez"
 date: "2021-08-13"
 output:
   html_document:
+    code_folding: hide
+    df_print: paged
+    highlight: tango
+    number_sections: yes
+    theme: united
+    toc: yes
+    toc_depth: 2
     keep_md: yes
 ---
 
 
 
-## Motivation
+# Motivation
 
 I would like to familiarize myself with machine learning (ML) techniques in `R`. So I have been reading and learning by doing. I thought I'd share my experience for others who'd like to give it a try.
 
@@ -35,7 +42,7 @@ theme_set(theme_light())
 doParallel::registerDoParallel(cores = 4) # parallel computations
 ```
 
-## Data
+# Data
 
 Read in training data.
 
@@ -197,7 +204,7 @@ naniar::miss_var_summary(holdout)
 ## 8 title            0    0
 ```
 
-## Exploratory data analysis
+# Exploratory data analysis
 
 
 ```r
@@ -341,11 +348,11 @@ dataset %>%
 
 ![](index_files/figure-html/unnamed-chunk-7-3.png)<!-- -->
 
-## Gradient boosting algorithms
+# Gradient boosting algorithms
 
 Let's start with [gradient boosting methods](https://en.wikipedia.org/wiki/XGBoost) which are very population in the ML community. 
 
-### Training/testing datasets
+## Training/testing datasets
 
 Split our dataset in two, one dataset for training and the other one for testing. We will use an additionnal splitting step for cross-validation. 
 
@@ -359,7 +366,7 @@ train_5fold <- train %>%
   vfold_cv(5)
 ```
 
-### Tuning
+## Tuning
 
 Set up defaults. 
 
@@ -443,7 +450,7 @@ xg_tune %>%
 ## # … with 80 more rows, and 1 more variable: .config <chr>
 ```
 
-### Fit model
+## Fit model
 
 Use best config to fit model to training data.
 
@@ -484,7 +491,7 @@ importances %>%
 
 ![](index_files/figure-html/unnamed-chunk-18-1.png)<!-- -->
 
-### Make predictions
+## Make predictions
 
 Now we're ready to predict survival for the holdout dataset and submit to Kaggle. 
 
@@ -501,11 +508,11 @@ I got and accuracy of 0.76794. Cool. Let's train a random forest model now.
 
 
 
-## Random forests
+# Random forests
 
 Let's continue with [random forest methods](https://en.wikipedia.org/wiki/Random_forest). 
 
-### Tuning
+## Tuning
 
 First a recipe. 
 
@@ -579,7 +586,7 @@ rf_tune %>%
 ## # … with 50 more rows
 ```
 
-### Fit model
+## Fit model
 
 Use best config to fit model to training data.
 
@@ -618,7 +625,7 @@ finalize_model(
 
 ![](index_files/figure-html/unnamed-chunk-28-1.png)<!-- -->
 
-### Make predictions
+## Make predictions
 
 Now we're ready to predict survival for the holdout dataset and submit to Kaggle. 
 
@@ -633,11 +640,11 @@ rf_fit %>%
 I got and accuracy of 0.77033, a bit better than gradient boosting. 
 
 
-## Regularization methods (elastic net here)
+# Regularization methods (elastic net here)
 
 Let's continue with [elastic net regularization ](https://en.wikipedia.org/wiki/Elastic_net_regularization). 
 
-### Tuning
+## Tuning
 
 First a recipe. 
 
@@ -713,7 +720,7 @@ en_tune %>%
 ## 16 0.316        accuracy binary     0.599     4  0.0338 Preprocessor1_Model16
 ```
 
-### Fit model
+## Fit model
 
 Use best config to fit model to training data.
 
@@ -755,7 +762,7 @@ en_fit$fit$fit$fit %>%
 
 ![](index_files/figure-html/unnamed-chunk-38-1.png)<!-- -->
 
-### Make predictions
+## Make predictions
 
 Now we're ready to predict survival for the holdout dataset and submit to Kaggle. 
 
@@ -769,7 +776,7 @@ en_fit %>%
 
 I got and accuracy of 0.76794. 
 
-## Stacked ensemble modelling
+# Stacked ensemble modelling
 
 Tune again with a probability-based metric.
 
@@ -845,7 +852,7 @@ holdout %>%
 I got an 0.77033 accuracy. 
 
 
-## Logistic regression
+# Logistic regression
 
 And what about a good old-fashioned logistic regression (not a ML algo)? 
 
@@ -988,7 +995,7 @@ logistic_fit %>%
 
 I got and accuracy of 0.76555. Oldies but goodies!
 
-## Conclusions
+# Conclusions
 
-I covered three ML algorithms (gradient boosting, random forest and elastic net) and logistic regression with the awesome `tidymodels` metapackage in `R`. My scores at predicting Titanic survivors were ok I guess. Some folks on Kaggle got a perfect accuracy, so there is always room for improvement. Maybe better tuning, better features (predictors) selection or other algorithms would increase accuracy. Of course, I forgot to use `set.seed()` so results are not exactly reproducible. 
+I covered three ML algorithms (gradient boosting, random forest and elastic net) and logistic regression with the awesome `tidymodels` metapackage in `R`. My scores at predicting Titanic survivors were ok I guess. Some folks on Kaggle got a perfect accuracy, so there is always room for improvement. Maybe better tuning, better features (or predictors) or other algorithms would increase accuracy. Of course, I forgot to use `set.seed()` so results are not exactly reproducible. 
 
