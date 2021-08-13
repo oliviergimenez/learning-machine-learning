@@ -4,14 +4,14 @@ author: "Olivier Gimenez"
 date: "`r Sys.Date()`"
 output:
   html_document:
-    code_folding: hide
+    code_folding: show
     df_print: paged
     highlight: tango
     number_sections: yes
     theme: united
     toc: yes
     toc_depth: 2
-    keep_md: yes
+#    keep_md: yes
 ---
 
 ```{r setup, include=FALSE}
@@ -33,7 +33,7 @@ The two great books I'm using are:
 
 + [Tidy models in R](https://www.tmwr.org/) by Max Kuhn and Julia Silge     
 
-I also recommend checking out the material (codes, screencasts) shared by [David Robinson](http://varianceexplained.org/r/sliced-ml/) and [Julia Silge](https://juliasilge.com/). 
+I also recommend checking out the material (codes, screencasts) shared by [David Robinson](http://varianceexplained.org/r/sliced-ml/) and [Julia Silge](https://juliasilge.com/) from whom I picked some useful tricks that I put to use below. 
 
 To try things, I've joined the [Kaggle](https://en.wikipedia.org/wiki/Kaggle) online community which gathers folks with lots of experience in ML from whom you can learn. Kaggle also hosts public datasets that can be used for playing around. 
 
@@ -63,7 +63,7 @@ After some data exploration (not shown), I decided to take care of missing value
 uniqx <- unique(na.omit(rawdata$Embarked))
 mode_embarked <- as.character(fct_drop(uniqx[which.max(tabulate(match(rawdata$Embarked, uniqx)))]))
 
-# Build function for deta cleaning and handling NAs
+# Build function for data cleaning and handling NAs
 process_data <- function(tbl){
   
   tbl %>%
