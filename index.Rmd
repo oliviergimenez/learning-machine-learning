@@ -1,7 +1,7 @@
 ---
 title: "Experimenting with machine learning in R with tidymodels and the Kaggle titanic dataset"
 author: "Olivier Gimenez"
-date: "8/13/2021"
+date: "`r Sys.Date()`"
 output:
   html_document:
     keep_md: yes

@@ -1,7 +1,7 @@
 ---
 title: "Experimenting with machine learning in R with tidymodels and the Kaggle titanic dataset"
 author: "Olivier Gimenez"
-date: "8/13/2021"
+date: "2021-08-13"
 output:
   html_document:
     keep_md: yes
@@ -14,7 +14,9 @@ output:
 I would like to familiarize myself with machine learning (ML) techniques in `R`. So I have been reading and learning by doing. I thought I'd share my experience for others who'd like to give it a try.
 
 The two great books I'm using are: 
-+ [An Introduction to Statistical Learning with Applications in R](https://www.statlearning.com/) by Gareth James, Daniela Witten, Trevor Hastie and Robert Tibshirani     
+
++ [An Introduction to Statistical Learning with Applications in R](https://www.statlearning.com/) by Gareth James, Daniela Witten, Trevor Hastie and Robert Tibshirani  
+
 + [Tidy models in R](https://www.tmwr.org/) by Max Kuhn and Julia Silge     
 
 I also recommend checking out the material (codes, screencasts) shared by [David Robinson](http://varianceexplained.org/r/sliced-ml/) and [Julia Silge](https://juliasilge.com/). 
@@ -23,7 +25,7 @@ To try things, I've joined the [Kaggle](https://en.wikipedia.org/wiki/Kaggle) on
 
 Let's start with the famous [Titanic dataset](https://www.kaggle.com/c/titanic/overview). We need to predict if a passenger survived the sinking of the Titanic (1) or not (0). A dataset is provided for training our models (train.csv). Another dataset is provided (test.csv) for which we do not know the answer. We will predict survival for each passenger, submit our answer to Kaggle and see how well we did compared to other folks. The metric for comparison is the percentage of passengers we correctly predict -- aka as accuracy. 
 
-First things first, let's load some packages. 
+First things first, let's load some packages to get us started. 
 
 ```r
 library(tidymodels) # metapackage for ML 
