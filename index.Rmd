@@ -171,7 +171,7 @@ dataset %>%
 
 # Gradient boosting algorithms
 
-Let's start with [gradient boosting methods](https://en.wikipedia.org/wiki/XGBoost) which are very population in the ML community. 
+Let's start with [gradient boosting methods](https://en.wikipedia.org/wiki/XGBoost) which are very popular in the ML community. 
 
 ## Training/testing datasets
 
