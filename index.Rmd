@@ -10,8 +10,8 @@ output:
     number_sections: yes
     theme: united
     toc: yes
-    toc_depth: 2
-#    keep_md: yes
+    toc_depth: 1
+    keep_md: yes
 ---
 
 ```{r setup, include=FALSE}
@@ -22,6 +22,10 @@ knitr::opts_chunk$set(echo = TRUE,
                       cache = TRUE,
                       cache.lazy = FALSE) # https://stackoverflow.com/questions/39417003/long-vectors-not-supported-yet-error-in-rmd-but-not-in-r-script
 ```
+
+# First version August 13, 2021, updated August 23, 2021
+
+I learnt from notebooks shared by folks who ranked high in the challenge, and added two features (which, eventually, did not help). I also explored some other ML algorithms. Last, I tuned the parameters more efficiently with a clever grid-search algorithm. All in all, I slightly improved my score, but most importantly, I now have a clean template for further use. 
 
 # Motivation
 
@@ -36,6 +40,8 @@ The two great books I'm using are:
 I also recommend checking out the material (codes, screencasts) shared by [David Robinson](http://varianceexplained.org/r/sliced-ml/) and [Julia Silge](https://juliasilge.com/) from whom I picked some useful tricks that I put to use below. 
 
 To try things, I've joined the [Kaggle](https://en.wikipedia.org/wiki/Kaggle) online community which gathers folks with lots of experience in ML from whom you can learn. Kaggle also hosts public datasets that can be used for playing around. 
+
+I use the `tidymodels` metapackage that contains a suite of packages for modeling and machine learning using `tidyverse` principles. Check out all possibilities [here](https://www.tidymodels.org/find/), and parsnip models in particular [there](https://www.tidymodels.org/find/parsnip/). 
 
 Let's start with the famous [Titanic dataset](https://www.kaggle.com/c/titanic/overview). We need to predict if a passenger survived the sinking of the Titanic (1) or not (0). A dataset is provided for training our models (train.csv). Another dataset is provided (test.csv) for which we do not know the answer. We will predict survival for each passenger, submit our answer to Kaggle and see how well we did compared to other folks. The metric for comparison is the percentage of passengers we correctly predict -- aka as accuracy. 
 
@@ -63,6 +69,7 @@ After some data exploration (not shown), I decided to take care of missing value
 uniqx <- unique(na.omit(rawdata$Embarked))
 mode_embarked <- as.character(fct_drop(uniqx[which.max(tabulate(match(rawdata$Embarked, uniqx)))]))
 
+
 # Build function for data cleaning and handling NAs
 process_data <- function(tbl){
   
@@ -74,6 +81,7 @@ process_data <- function(tbl){
            gender = factor(Sex),
            fare = Fare,
            age = Age,
+           ticket = Ticket,
            alone = if_else(SibSp + Parch == 0, "yes", "no"), # alone variable
            alone = as_factor(alone),
            port = factor(Embarked), # rename embarked as port
@@ -84,14 +92,19 @@ process_data <- function(tbl){
     group_by(title) %>%
     mutate(median_age_title = median(age, na.rm = T)) %>%
     ungroup() %>%
-    mutate(age = if_else(is.na(age), median_age_title, age)) # deal w/ NAs in age (replace by median in title)
+    mutate(age = if_else(is.na(age), median_age_title, age)) %>% # deal w/ NAs in age (replace by median in title)
+    mutate(ticketfreq = ave(1:nrow(.), FUN = length),
+           fareadjusted = fare / ticketfreq) %>%
+    mutate(familyage = SibSp + Parch + 1 + age/70)
+    
 }
 
 # Process the data
 dataset <- rawdata %>%
   process_data() %>%
   mutate(survived = as_factor(if_else(Survived == 1, "yes", "no"))) %>%
-  select(survived, class, gender, age, alone, fare, port, title) 
+  mutate(survived = relevel(survived, ref = "yes")) %>% # first event is survived = yes
+  select(survived, class, gender, age, alone, port, title, fareadjusted, familyage) 
 
 # Have a look again
 glimpse(dataset)
@@ -103,7 +116,7 @@ Let's apply the same treatment to the test dataset.
 rawdata <- read_csv("dat/titanic/test.csv") 
 holdout <- rawdata %>%
   process_data() %>%
-  select(PassengerId, class, gender, age, alone, fare, port, title) 
+  select(PassengerId, class, gender, age, alone, port, title, fareadjusted, familyage) 
 
 glimpse(holdout)
 naniar::miss_var_summary(holdout)
@@ -115,7 +128,11 @@ naniar::miss_var_summary(holdout)
 skimr::skim(dataset)
 ```
 
+Let's explore the data. 
 ```{r}
+dataset %>%
+  count(survived)
+
 dataset %>%
   group_by(gender) %>%
   summarize(n = n(),
@@ -137,6 +154,7 @@ dataset %>%
   arrange(desc(pct_surv))
 ```
 
+Some informative graphs. 
 ```{r}
 dataset %>%
   group_by(class, gender) %>%
@@ -164,27 +182,32 @@ dataset %>%
   facet_wrap(~gender)
 
 dataset %>%
-    ggplot(aes(fare, group = survived, color = survived, fill = survived)) +
+    ggplot(aes(fareadjusted, group = survived, color = survived, fill = survived)) +
     geom_histogram(alpha = .4, position = position_dodge()) +
     labs(x = "fare", y = NULL, color = "survived?", fill = "survived?")
+
+dataset %>%
+    ggplot(aes(familyage, group = survived, color = survived, fill = survived)) +
+    geom_histogram(alpha = .4, position = position_dodge()) +
+    labs(x = "family aged", y = NULL, color = "survived?", fill = "survived?")
 ```
 
-# Gradient boosting algorithms
-
-Let's start with [gradient boosting methods](https://en.wikipedia.org/wiki/XGBoost) which are very popular in the ML community. 
-
-## Training/testing datasets
+# Training/testing datasets
 
 Split our dataset in two, one dataset for training and the other one for testing. We will use an additionnal splitting step for cross-validation. 
 ```{r}
 set.seed(2021)
-spl <- initial_split(dataset)
+spl <- initial_split(dataset, strata = "survived")
 train <- training(spl)
 test <- testing(spl)
 
 train_5fold <- train %>%
   vfold_cv(5)
 ```
+
+# Gradient boosting algorithms - xgboost
+
+Let's start with [gradient boosting methods](https://en.wikipedia.org/wiki/XGBoost) which are very popular in the ML community. 
 
 ## Tuning
 
@@ -209,7 +232,9 @@ xg_model <- boost_tree(mode = "classification", # binary response
                        trees = tune(),
                        mtry = tune(),
                        tree_depth = tune(),
-                       learn_rate = tune()) # parameters to be tuned
+                       learn_rate = tune(),
+                       loss_reduction = tune(),
+                       min_n = tune()) # parameters to be tuned
 ```
 
 Now set our workflow.
@@ -226,10 +251,37 @@ xg_tune <- xg_wf %>%
   tune_grid(train_5fold,
             metrics = mset,
             control = control,
-            grid = crossing(trees = seq(500, 2500, 500),
+            grid = crossing(trees = 1000,
                             mtry = c(3, 5, 8), # finalize(mtry(), train)
                             tree_depth = c(5, 10, 15),
-                            learn_rate = c(0.01, 0.005)))
+                            learn_rate = c(0.01, 0.005),
+                            loss_reduction = c(0.01, 0.1, 1),
+                            min_n = c(2, 10, 25)))
+```
+
+Visualize the results. 
+```{r, fig.width = 15, fig.height = 10}
+autoplot(xg_tune)
+```
+
+Collect metrics. 
+```{r}
+xg_tune %>%
+  collect_metrics() %>%
+  arrange(desc(mean))
+```
+
+The tuning takes some time. There are other ways to explore the parameter space more efficiently. For example, we will use the function [`dials::grid_max_entropy()`](https://dials.tidymodels.org/reference/grid_max_entropy.html) in the last section about ensemble modelling. Here, I will use [`finetune::tune_race_anova`](https://search.r-project.org/CRAN/refmans/finetune/html/tune_race_anova.html).
+```{r}
+library(finetune)
+xg_tune <-
+  xg_wf %>%
+  tune_race_anova(
+    train_5fold,
+    grid = 50,
+    param_info = xg_model %>% parameters(),
+    metrics = metric_set(accuracy),
+    control = control_race(verbose_elim = TRUE))
 ```
 
 Visualize the results. 
@@ -271,18 +323,18 @@ importances %>%
 
 ## Make predictions
 
-Now we're ready to predict survival for the holdout dataset and submit to Kaggle. 
+Now we're ready to predict survival for the holdout dataset and submit to Kaggle. Note that I use the whole dataset, not just the training dataset. 
 ```{r}
-xg_fit %>%
+xg_wf %>%
+  finalize_workflow(select_best(xg_tune)) %>%
+  fit(dataset) %>%
   augment(holdout) %>%
   select(PassengerId, Survived = .pred_class) %>%
   mutate(Survived = if_else(Survived == "yes", 1, 0)) %>%
   write_csv("output/titanic/xgboost.csv")
 ```
 
-I got and accuracy of 0.76794. Cool. Let's train a random forest model now. 
-
-
+I got and accuracy of 0.74162. Cool. Let's train a random forest model now. 
 
 
 # Random forests
@@ -298,7 +350,7 @@ rf_rec <- recipe(survived ~ ., data = train) %>%
   step_dummy(all_nominal_predictors()) # all factors var are split into binary terms (factor disj coding)
 ```
 
-Then specify a gradient boosting model.
+Then specify a random forest model.
 ```{r}
 rf_model <- rand_forest(mode = "classification", # binary response
                         engine = "ranger", # by default
@@ -317,13 +369,14 @@ rf_wf <-
 
 Use cross-validation to evaluate our model with different param config.
 ```{r}
-rf_tune <- rf_wf %>%
-  tune_grid(train_5fold,
-            metrics = mset,
-            control = control,
-            grid = crossing(trees = seq(500, 2500, 500),
-                            mtry = c(3, 5, 8), # finalize(mtry(), train)
-                            min_n = seq(1, 20, 5)))
+rf_tune <-
+  rf_wf %>%
+  tune_race_anova(
+    train_5fold,
+    grid = 50,
+    param_info = rf_model %>% parameters(),
+    metrics = metric_set(accuracy),
+    control = control_race(verbose_elim = TRUE))
 ```
 
 Visualize the results. 
@@ -369,17 +422,116 @@ finalize_model(
 
 Now we're ready to predict survival for the holdout dataset and submit to Kaggle. 
 ```{r}
-rf_fit %>%
+rf_wf %>%
+  finalize_workflow(select_best(rf_tune)) %>%
+  fit(dataset) %>%
   augment(holdout) %>%
   select(PassengerId, Survived = .pred_class) %>%
   mutate(Survived = if_else(Survived == "yes", 1, 0)) %>%
   write_csv("output/titanic/randomforest.csv")
 ```
 
-I got and accuracy of 0.77033, a bit better than gradient boosting. 
+I got and accuracy of 0.77990, a bit better than gradient boosting. 
 
 
-# Regularization methods (elastic net here)
+Let's continue with [cat boosting methods](https://en.wikipedia.org/wiki/Catboost). 
+
+# Gradient boosting algorithms - catboost
+
+## Tuning
+
+Set up defaults. 
+```{r}
+mset <- metric_set(accuracy) # metric is accuracy
+control <- control_grid(save_workflow = TRUE,
+                        save_pred = TRUE,
+                        extract = extract_model) # grid for tuning
+```
+
+First a recipe. 
+```{r}
+cb_rec <- recipe(survived ~ ., data = train) %>%
+  step_impute_median(all_numeric()) %>% # replace missing value by median
+  step_dummy(all_nominal_predictors()) # all factors var are split into binary terms (factor disj coding)
+```
+
+
+Then specify a cat boosting model.
+```{r}
+library(treesnip)
+cb_model <- boost_tree(mode = "classification",
+                       engine = "catboost",
+                       mtry = tune(),
+                       trees = tune(),
+                       min_n = tune(),
+                       tree_depth = tune(),
+                       learn_rate = tune()) # parameters to be tuned
+```
+
+Now set our workflow.
+```{r}
+cb_wf <- 
+  workflow() %>% 
+  add_model(cb_model) %>% 
+  add_recipe(cb_rec)
+```
+
+Use cross-validation to evaluate our model with different param config.
+```{r}
+cb_tune <- cb_wf %>%
+  tune_race_anova(
+    train_5fold,
+    grid = 30,
+    param_info = cb_model %>% parameters(),
+    metrics = metric_set(accuracy),
+    control = control_race(verbose_elim = TRUE))
+```
+
+Visualize the results. 
+```{r}
+autoplot(cb_tune)
+```
+
+Collect metrics. 
+```{r}
+cb_tune %>%
+  collect_metrics() %>%
+  arrange(desc(mean))
+```
+
+## Fit model
+
+Use best config to fit model to training data.
+```{r}
+cb_fit <- cb_wf %>%
+  finalize_workflow(select_best(cb_tune)) %>%
+  fit(train)
+```
+
+Check out accuracy on testing dataset to see if we overfitted. 
+```{r}
+cb_fit %>%
+  augment(test, type.predict = "response") %>%
+  accuracy(survived, .pred_class)
+```
+
+## Make predictions
+
+Now we're ready to predict survival for the holdout dataset and submit to Kaggle. 
+```{r}
+cb_wf %>%
+  finalize_workflow(select_best(cb_tune)) %>%
+  fit(dataset) %>%
+  augment(holdout) %>%
+  select(PassengerId, Survived = .pred_class) %>%
+  mutate(Survived = if_else(Survived == "yes", 1, 0)) %>%
+  write_csv("output/titanic/catboost.csv")
+```
+
+I got and accuracy of 0.76076. Cool.
+
+
+# Regularization methods
 
 Let's continue with [elastic net regularization ](https://en.wikipedia.org/wiki/Elastic_net_regularization). 
 
@@ -389,13 +541,14 @@ First a recipe.
 ```{r}
 en_rec <- recipe(survived ~ ., data = train) %>%
   step_impute_median(all_numeric()) %>% # replace missing value by median
-  step_dummy(all_nominal_predictors()) %>% # all factors var are split into binary terms (factor disj coding)
-  step_normalize(all_predictors()) # normalize
+  step_normalize(all_numeric_predictors()) %>% # normalize
+  step_dummy(all_nominal_predictors()) # all factors var are split into binary terms (factor disj coding)
 ```
 
-Then specify a gradient boosting model.
+Then specify a regularization model. We tune parameter mixture, with ridge regression for mixture = 0, and lasso for mixture = 1.
 ```{r}
-en_model <- logistic_reg(penalty = tune()) %>% # penalty to be tuned
+en_model <- logistic_reg(penalty = tune(), 
+                         mixture = tune()) %>% # param to be tuned
   set_engine("glmnet") %>% # elastic net
   set_mode("classification") # binary response
 ```
@@ -414,7 +567,8 @@ en_tune <- en_wf %>%
   tune_grid(train_5fold,
             metrics = mset,
             control = control,
-            grid = crossing(penalty = 10 ^ seq(-8, -.5, .5)))
+            grid = crossing(penalty = 10 ^ seq(-8, -.5, .5),
+                            mixture = seq(0, 1, length.out = 10)))
 ```
 
 Visualize the results. 
@@ -463,77 +617,16 @@ en_fit$fit$fit$fit %>%
 
 Now we're ready to predict survival for the holdout dataset and submit to Kaggle. 
 ```{r}
-en_fit %>%
+en_wf %>%
+  finalize_workflow(select_best(en_tune)) %>%
+  fit(dataset) %>%
   augment(holdout) %>%
   select(PassengerId, Survived = .pred_class) %>%
   mutate(Survived = if_else(Survived == "yes", 1, 0)) %>%
-  write_csv("output/titanic/elasticnet.csv")
+  write_csv("output/titanic/regularization.csv")
 ```
 
-I got and accuracy of 0.76794. 
-
-# Stacked ensemble modelling
-
-Tune again with a probability-based metric.
-```{r}
-xg_tune <- xg_wf %>%
-  tune_grid(train_5fold,
-            metrics = metric_set(roc_auc),
-            control = control,
-            grid = crossing(trees = seq(500, 2500, 500),
-                            mtry = c(3, 5, 8), # finalize(mtry(), train)
-                            tree_depth = c(5, 10, 15),
-                            learn_rate = c(0.01, 0.005)))
-
-rf_tune <- rf_wf %>%
-  tune_grid(train_5fold,
-            metrics = metric_set(roc_auc),
-            control = control,
-            grid = crossing(trees = seq(500, 2500, 500),
-                            mtry = c(3, 5, 8), # finalize(mtry(), train)
-                            min_n = seq(1, 20, 5)))
-
-en_tune <- en_wf %>%
-  tune_grid(train_5fold,
-            metrics = metric_set(roc_auc),
-            control = control,
-            grid = crossing(penalty = 10 ^ seq(-8, -.5, .5)))
-```
-
-Get best config.
-```{r}
-xg_best <- xg_tune %>% filter_parameters(parameters = select_best(xg_tune))
-rf_best <- rf_tune %>% filter_parameters(parameters = select_best(rf_tune))
-en_best <- en_tune %>% filter_parameters(parameters = select_best(en_tune))
-```
-
-Do the stacked ensemble modelling (for some reasons I didn't understand, I could not stack elastic net). 
-```{r}
-blended <- stacks() %>% # initialize
-  add_candidates(xg_best) %>% # add gradient boosting
-  add_candidates(rf_best) %>% # add random forest
-#  add_candidates(en_best) %>% # add elastic net
-  blend_predictions() %>% # fit regularized model
-  fit_members() # fit candidate members with non-zero stacking coef with full training dataset
-```
-
-Perf on testing dataset?
-```{r}
-test %>%
-  bind_cols(predict(blended, .)) %>%
-  accuracy(survived, .pred_class)
-```
-
-Now predict. 
-```{r}
-holdout %>%
-  bind_cols(predict(blended, .)) %>%
-  select(PassengerId, Survived = .pred_class) %>%
-  mutate(Survived = if_else(Survived == "yes", 1, 0)) %>%
-  write_csv("output/titanic/stacked.csv")
-```
-
-I got an 0.77033 accuracy. 
+I got and accuracy of 0.76315. 
 
 
 # Logistic regression
@@ -544,8 +637,8 @@ First a recipe.
 ```{r}
 logistic_rec <- recipe(survived ~ ., data = train) %>%
   step_impute_median(all_numeric()) %>% # replace missing value by median
-  step_dummy(all_nominal_predictors()) %>% # all factors var are split into binary terms (factor disj coding)
-  step_normalize(all_predictors()) # normalize
+  step_normalize(all_numeric_predictors()) %>% # normalize
+  step_dummy(all_nominal_predictors()) # all factors var are split into binary terms (factor disj coding)
 ```
 
 Then specify a logistic regression.
@@ -569,10 +662,21 @@ logistic_fit <- logistic_wf %>%
   fit(train)
 ```
 
-Inspect results.
+Inspect significant features (aka predictors).
 ```{r}
 tidy(logistic_fit, exponentiate = TRUE) %>%
   filter(p.value < 0.05)
+```
+
+Same thing, but graphically.
+```{r}
+library(broom)
+logistic_fit %>%
+  tidy() %>%
+  mutate(term = fct_reorder(term, estimate)) %>%
+  ggplot(aes(estimate, term, fill = estimate > 0)) +
+  geom_col() +
+  theme(legend.position = "none")
 ```
 
 Check out accuracy on testing dataset to see if we overfitted. 
@@ -589,45 +693,559 @@ logistic_fit %>%
   conf_mat(survived, .pred_class)
 ```
 
-Custom metrics.
-```{r}
-custom_metrics <- metric_set(sens, precision, recall, f_meas)
-logistic_fit %>%
-  augment(test, type.predict = "response") %>%
-  custom_metrics(truth = survived, estimate = .pred_class)
-```
-
 ROC curve.
 ```{r}
 logistic_fit %>%
   augment(test, type.predict = "response") %>%
-  roc_curve(truth = survived, estimate = .pred_yes, event_level = "second") %>%
+  roc_curve(truth = survived, estimate = .pred_yes) %>%
   autoplot()
-```
-
-Check out important features (aka predictors). 
-```{r}
-library(broom)
-logistic_fit %>%
-  tidy() %>%
-  mutate(term = fct_reorder(term, estimate)) %>%
-  ggplot(aes(estimate, term, fill = estimate > 0)) +
-  geom_col() +
-  theme(legend.position = "none")
 ```
 
 Now we're ready to predict survival for the holdout dataset and submit to Kaggle. 
 ```{r}
-logistic_fit %>%
+logistic_wf %>%
+  fit(dataset) %>%
   augment(holdout) %>%
   select(PassengerId, Survived = .pred_class) %>%
   mutate(Survived = if_else(Survived == "yes", 1, 0)) %>%
   write_csv("output/titanic/logistic.csv")
 ```
 
-I got and accuracy of 0.76555. Oldies but goodies!
+I got and accuracy of 0.76076. Oldies but goodies!
+
+
+# Neural networks
+
+We go on with [neural networks](https://en.wikipedia.org/wiki/Artificial_neural_network).
+
+## Tuning
+
+Set up defaults. 
+```{r}
+mset <- metric_set(accuracy) # metric is accuracy
+control <- control_grid(save_workflow = TRUE,
+                        save_pred = TRUE,
+                        extract = extract_model) # grid for tuning
+```
+
+First a recipe. 
+```{r}
+nn_rec <- recipe(survived ~ ., data = train) %>%
+  step_impute_median(all_numeric()) %>% # replace missing value by median
+  step_normalize(all_numeric_predictors()) %>%
+  step_dummy(all_nominal_predictors()) # all factors var are split into binary terms (factor disj coding)
+```
+
+Then specify a neural network.
+```{r}
+nn_model <- mlp(epochs = tune(), 
+                hidden_units = tune(), 
+                dropout = tune()) %>% # param to be tuned
+  set_mode("classification") %>% # binary response var
+  set_engine("keras", verbose = 0)
+```
+
+Now set our workflow.
+```{r}
+nn_wf <- 
+  workflow() %>% 
+  add_model(nn_model) %>% 
+  add_recipe(nn_rec)
+```
+
+Use cross-validation to evaluate our model with different param config.
+```{r}
+nn_tune <- nn_wf %>%
+  tune_race_anova(
+    train_5fold,
+    grid = 30,
+    param_info = nn_model %>% parameters(),
+    metrics = metric_set(accuracy),
+    control = control_race(verbose_elim = TRUE))
+```
+
+Visualize the results. 
+```{r}
+autoplot(nn_tune)
+```
+
+Collect metrics. 
+```{r}
+nn_tune %>%
+  collect_metrics() %>%
+  arrange(desc(mean))
+```
+
+## Fit model
+
+Use best config to fit model to training data.
+```{r}
+nn_fit <- nn_wf %>%
+  finalize_workflow(select_best(nn_tune)) %>%
+  fit(train)
+```
+
+Check out accuracy on testing dataset to see if we overfitted. 
+```{r}
+nn_fit %>%
+  augment(test, type.predict = "response") %>%
+  accuracy(survived, .pred_class)
+```
+
+## Make predictions
+
+Now we're ready to predict survival for the holdout dataset and submit to Kaggle. 
+```{r}
+nn_wf %>%
+  finalize_workflow(select_best(nn_tune)) %>%
+  fit(train) %>%
+  augment(holdout) %>%
+  select(PassengerId, Survived = .pred_class) %>%
+  mutate(Survived = if_else(Survived == "yes", 1, 0)) %>%
+  write_csv("output/titanic/nn.csv")
+```
+
+I got and accuracy of 0.78708. My best score so far.
+
+
+# Support vector machines
+
+We go on with [support vector machines](https://en.wikipedia.org/wiki/Support-vector_machine).
+
+## Tuning
+
+Set up defaults. 
+```{r}
+mset <- metric_set(accuracy) # metric is accuracy
+control <- control_grid(save_workflow = TRUE,
+                        save_pred = TRUE,
+                        extract = extract_model) # grid for tuning
+```
+
+First a recipe. 
+```{r}
+svm_rec <- recipe(survived ~ ., data = train) %>%
+  step_impute_median(all_numeric()) %>% # replace missing value by median
+  # remove any zero variance predictors
+  step_zv(all_predictors()) %>% 
+  # remove any linear combinations
+  step_lincomb(all_numeric()) %>%
+  step_dummy(all_nominal_predictors()) # all factors var are split into binary terms (factor disj coding)
+```
+
+Then specify a svm.
+```{r}
+svm_model <- svm_rbf(cost = tune(), 
+                     rbf_sigma = tune()) %>% # param to be tuned
+  set_mode("classification") %>% # binary response var
+  set_engine("kernlab")
+```
+
+Now set our workflow.
+```{r}
+svm_wf <- 
+  workflow() %>% 
+  add_model(svm_model) %>% 
+  add_recipe(svm_rec)
+```
+
+Use cross-validation to evaluate our model with different param config.
+```{r}
+svm_tune <- svm_wf %>%
+  tune_race_anova(
+    train_5fold,
+    grid = 30,
+    param_info = svm_model %>% parameters(),
+    metrics = metric_set(accuracy),
+    control = control_race(verbose_elim = TRUE))
+```
+
+Visualize the results. 
+```{r}
+autoplot(svm_tune)
+```
+
+Collect metrics. 
+```{r}
+svm_tune %>%
+  collect_metrics() %>%
+  arrange(desc(mean))
+```
+
+## Fit model
+
+Use best config to fit model to training data.
+```{r}
+svm_fit <- svm_wf %>%
+  finalize_workflow(select_best(svm_tune)) %>%
+  fit(train)
+```
+
+Check out accuracy on testing dataset to see if we overfitted. 
+```{r}
+svm_fit %>%
+  augment(test, type.predict = "response") %>%
+  accuracy(survived, .pred_class)
+```
+
+## Make predictions
+
+Now we're ready to predict survival for the holdout dataset and submit to Kaggle. 
+```{r}
+svm_wf %>%
+  finalize_workflow(select_best(svm_tune)) %>%
+  fit(dataset) %>%
+  augment(holdout) %>%
+  select(PassengerId, Survived = .pred_class) %>%
+  mutate(Survived = if_else(Survived == "yes", 1, 0)) %>%
+  write_csv("output/titanic/svm.csv")
+```
+
+I got and accuracy of 0.77511. 
+
+
+
+# Decision trees
+
+We go on with [decision trees](https://en.wikipedia.org/wiki/Decision_tree).
+
+## Tuning
+
+Set up defaults. 
+```{r}
+mset <- metric_set(accuracy) # metric is accuracy
+control <- control_grid(save_workflow = TRUE,
+                        save_pred = TRUE,
+                        extract = extract_model) # grid for tuning
+```
+
+First a recipe. 
+```{r}
+dt_rec <- recipe(survived ~ ., data = train) %>%
+  step_impute_median(all_numeric()) %>% # replace missing value by median
+  step_zv(all_predictors()) %>% 
+  step_dummy(all_nominal_predictors()) # all factors var are split into binary terms (factor disj coding)
+```
+
+Then specify a decision tree model.
+```{r}
+library(baguette)
+dt_model <- bag_tree(cost_complexity = tune(),
+                     tree_depth = tune(),
+                     min_n = tune()) %>% # param to be tuned
+  set_engine("rpart", times = 25) %>% # nb bootstraps
+  set_mode("classification") # binary response var
+```
+
+Now set our workflow.
+```{r}
+dt_wf <- 
+  workflow() %>% 
+  add_model(dt_model) %>% 
+  add_recipe(dt_rec)
+```
+
+Use cross-validation to evaluate our model with different param config.
+```{r}
+dt_tune <- dt_wf %>%
+  tune_race_anova(
+    train_5fold,
+    grid = 30,
+    param_info = dt_model %>% parameters(),
+    metrics = metric_set(accuracy),
+    control = control_race(verbose_elim = TRUE))
+```
+
+Visualize the results. 
+```{r}
+autoplot(dt_tune)
+```
+
+Collect metrics. 
+```{r}
+dt_tune %>%
+  collect_metrics() %>%
+  arrange(desc(mean))
+```
+
+## Fit model
+
+Use best config to fit model to training data.
+```{r}
+dt_fit <- dt_wf %>%
+  finalize_workflow(select_best(dt_tune)) %>%
+  fit(train)
+```
+
+Check out accuracy on testing dataset to see if we overfitted. 
+```{r}
+dt_fit %>%
+  augment(test, type.predict = "response") %>%
+  accuracy(survived, .pred_class)
+```
+
+## Make predictions
+
+Now we're ready to predict survival for the holdout dataset and submit to Kaggle. 
+```{r}
+dt_wf %>%
+  finalize_workflow(select_best(dt_tune)) %>%
+  fit(dataset) %>%
+  augment(holdout) %>%
+  select(PassengerId, Survived = .pred_class) %>%
+  mutate(Survived = if_else(Survived == "yes", 1, 0)) %>%
+  write_csv("output/titanic/dt.csv")
+```
+
+I got and accuracy of 0.76794. 
+
+
+
+# Stacked ensemble modelling
+
+Let's do some ensemble modelling with all algo but logistic and catboost. Tune again with a probability-based metric. Start with xgboost. 
+```{r}
+library(finetune)
+library(stacks)
+# xgboost
+xg_rec <- recipe(survived ~ ., data = train) %>%
+  step_impute_median(all_numeric()) %>% # replace missing value by median
+  step_dummy(all_nominal_predictors()) # all factors var are split into binary terms (factor disj coding)
+xg_model <- boost_tree(mode = "classification", # binary response
+                       trees = tune(),
+                       mtry = tune(),
+                       tree_depth = tune(),
+                       learn_rate = tune(),
+                       loss_reduction = tune(),
+                       min_n = tune()) # parameters to be tuned
+xg_wf <- 
+  workflow() %>% 
+  add_model(xg_model) %>% 
+  add_recipe(xg_rec)
+xg_grid <- grid_latin_hypercube(
+  trees(),
+  finalize(mtry(), train),
+  tree_depth(),
+  learn_rate(),
+  loss_reduction(),
+  min_n(),
+  size = 30)
+xg_tune <- xg_wf %>%
+  tune_grid(
+    resamples = train_5fold,
+    grid = xg_grid,
+    metrics = metric_set(roc_auc),
+    control = control_stack_grid())
+```
+
+Then random forests.
+```{r}
+# random forest
+rf_rec <- recipe(survived ~ ., data = train) %>%
+  step_impute_median(all_numeric()) %>% 
+  step_dummy(all_nominal_predictors()) 
+rf_model <- rand_forest(mode = "classification", # binary response
+                        engine = "ranger", # by default
+                        mtry = tune(),
+                        trees = tune(),
+                        min_n = tune()) # parameters to be tuned
+rf_wf <- 
+  workflow() %>% 
+  add_model(rf_model) %>% 
+  add_recipe(rf_rec)
+rf_grid <- grid_latin_hypercube(
+  finalize(mtry(), train),
+  trees(),
+  min_n(),
+  size = 30)
+rf_tune <- rf_wf %>%
+  tune_grid(
+    resamples = train_5fold,
+    grid = rf_grid,
+    metrics = metric_set(roc_auc),
+    control = control_stack_grid())
+```
+
+Regularisation methods (between ridge and lasso).
+```{r}
+# regularization methods
+en_rec <- recipe(survived ~ ., data = train) %>%
+  step_impute_median(all_numeric()) %>% # replace missing value by median
+  step_normalize(all_numeric_predictors()) %>% # normalize
+  step_dummy(all_nominal_predictors()) 
+en_model <- logistic_reg(penalty = tune(), 
+                         mixture = tune()) %>% # param to be tuned
+  set_engine("glmnet") %>% # elastic net
+  set_mode("classification") # binary response
+en_wf <- 
+  workflow() %>% 
+  add_model(en_model) %>% 
+  add_recipe(en_rec)
+en_grid <- grid_latin_hypercube(
+  penalty(),
+  mixture(),
+  size = 30)
+en_tune <- en_wf %>%
+  tune_grid(
+    resamples = train_5fold,
+    grid = en_grid,
+    metrics = metric_set(roc_auc),
+    control = control_stack_grid())
+```
+
+Neural networks (takes time, so pick only a few values for illustration purpose).
+```{r}
+# neural networks
+nn_rec <- recipe(survived ~ ., data = train) %>%
+  step_impute_median(all_numeric()) %>% # replace missing value by median
+  step_normalize(all_numeric_predictors()) %>%
+  step_dummy(all_nominal_predictors()) 
+nn_model <- mlp(epochs = tune(), 
+                hidden_units = 2, 
+                dropout = tune()) %>% # param to be tuned
+  set_mode("classification") %>% # binary response var
+  set_engine("keras", verbose = 0)
+nn_wf <- 
+  workflow() %>% 
+  add_model(nn_model) %>% 
+  add_recipe(nn_rec)
+# nn_grid <- grid_latin_hypercube(
+#   epochs(),
+#   hidden_units(),
+#   dropout(),
+#   size = 10)
+nn_tune <- nn_wf %>%
+  tune_grid(
+    resamples = train_5fold,
+    grid = crossing(dropout = c(0.1, 0.2), epochs = c(250, 500, 1000)), # nn_grid
+    metrics = metric_set(roc_auc),
+    control = control_stack_grid())
+#autoplot(nn_tune)
+```
+
+Support vector machines.
+```{r}
+# support vector machines
+svm_rec <- recipe(survived ~ ., data = train) %>%
+  step_impute_median(all_numeric()) %>% 
+  step_normalize(all_numeric_predictors()) %>%
+  step_dummy(all_nominal_predictors()) 
+svm_model <- svm_rbf(cost = tune(), 
+                     rbf_sigma = tune()) %>% # param to be tuned
+  set_mode("classification") %>% # binary response var
+  set_engine("kernlab")
+svm_wf <- 
+  workflow() %>% 
+  add_model(svm_model) %>% 
+  add_recipe(svm_rec)
+svm_grid <- grid_latin_hypercube(
+  cost(),
+  rbf_sigma(),
+  size = 30)
+svm_tune <- svm_wf %>%
+  tune_grid(
+    resamples = train_5fold,
+    grid = svm_grid,
+    metrics = metric_set(roc_auc),
+    control = control_stack_grid())
+```
+
+Last, decision trees.
+```{r}
+# decision trees
+dt_rec <- recipe(survived ~ ., data = train) %>%
+  step_impute_median(all_numeric()) %>% 
+  step_zv(all_predictors()) %>% 
+  step_dummy(all_nominal_predictors()) 
+library(baguette)
+dt_model <- bag_tree(cost_complexity = tune(),
+                     tree_depth = tune(),
+                     min_n = tune()) %>% # param to be tuned
+  set_engine("rpart", times = 25) %>% # nb bootstraps
+  set_mode("classification") # binary response var
+dt_wf <- 
+  workflow() %>% 
+  add_model(dt_model) %>% 
+  add_recipe(dt_rec)
+dt_grid <- grid_latin_hypercube(
+  cost_complexity(),
+  tree_depth(),
+  min_n(),
+  size = 30)
+dt_tune <- dt_wf %>%
+  tune_grid(
+    resamples = train_5fold,
+    grid = dt_grid,
+    metrics = metric_set(roc_auc),
+    control = control_stack_grid())
+
+```
+
+Get best config.
+```{r}
+xg_best <- xg_tune %>% filter_parameters(parameters = select_best(xg_tune))
+rf_best <- rf_tune %>% filter_parameters(parameters = select_best(rf_tune))
+en_best <- en_tune %>% filter_parameters(parameters = select_best(en_tune))
+nn_best <- nn_tune %>% filter_parameters(parameters = select_best(nn_tune))
+svm_best <- svm_tune %>% filter_parameters(parameters = select_best(svm_tune))
+dt_best <- dt_tune %>% filter_parameters(parameters = select_best(dt_tune))
+
+```
+
+Do the stacked ensemble modelling. 
+
+Pile all models together.
+```{r}
+blended <- stacks() %>% # initialize
+  add_candidates(en_best) %>% # add regularization model
+  add_candidates(xg_best) %>% # add gradient boosting
+  add_candidates(rf_best) %>% # add random forest
+  add_candidates(nn_best) %>% # add neural network
+  add_candidates(svm_best) %>% # add svm
+  add_candidates(dt_best) # add decision trees
+blended
+```
+
+Fit regularized model.
+```{r}
+blended_fit <- blended %>%
+  blend_predictions() # fit regularized model
+```
+
+
+Visualise penalized model. Note that neural networks are dropped, despite achieving best score when used in isolation. I'll have to dig into that.
+```{r}
+autoplot(blended_fit)
+autoplot(blended_fit, type = "members")
+autoplot(blended_fit, type = "weights")
+```
+
+Fit candidate members with non-zero stacking coef with full training dataset.
+```{r}
+blended_regularized <- blended_fit %>%
+  fit_members() 
+blended_regularized
+```
+
+Perf on testing dataset?
+```{r}
+test %>%
+  bind_cols(predict(blended_regularized, .)) %>%
+  accuracy(survived, .pred_class)
+```
+
+Now predict.
+```{r}
+holdout %>%
+  bind_cols(predict(blended_regularized, .)) %>%
+  select(PassengerId, Survived = .pred_class) %>%
+  mutate(Survived = if_else(Survived == "yes", 1, 0)) %>%
+  write_csv("output/titanic/stacked.csv")
+```
+
+I got an 0.76076 accuracy. 
+
 
 # Conclusions
 
-I covered three ML algorithms (gradient boosting, random forest and elastic net) and logistic regression with the awesome `tidymodels` metapackage in `R`. My scores at predicting Titanic survivors were ok I guess. Some folks on Kaggle got a perfect accuracy, so there is always room for improvement. Maybe better tuning, better features (or predictors) or other algorithms would increase accuracy. Of course, I forgot to use `set.seed()` so results are not exactly reproducible. 
-
+I covered several ML algorithms and logistic regression with the awesome `tidymodels` metapackage in `R`. My scores at predicting Titanic survivors were ok I guess. Some folks on Kaggle got a perfect accuracy, so there is always room for improvement. Maybe better tuning, better features (or predictors) or other algorithms would increase accuracy. Of course, I forgot to use `set.seed()` so results are not exactly reproducible. 
