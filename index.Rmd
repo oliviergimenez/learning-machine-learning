@@ -29,7 +29,7 @@ Since my first post, I've been reading notebooks shared by folks who ranked high
 
 # Motivation
 
-I would like to familiarize myself with machine learning (ML) techniques in `R`. So I have been reading and learning by doing. I thought I'd share my experience for others who'd like to give it a try.
+I would like to familiarize myself with machine learning (ML) techniques in `R`. So I have been reading and learning by doing. I thought I'd share my experience for others who'd like to give it a try. All material available from GitHub at <https://github.com/oliviergimenez/learning-machine-learning>. 
 
 The two great books I'm using are: 
 
