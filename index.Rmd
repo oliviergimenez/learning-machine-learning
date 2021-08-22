@@ -1,7 +1,7 @@
 ---
 title: "Experimenting with machine learning in R with tidymodels and the Kaggle titanic dataset"
 author: "Olivier Gimenez"
-date: "`r Sys.Date()`"
+date: "August 23, 2021"
 output:
   html_document:
     code_folding: show
@@ -25,7 +25,7 @@ knitr::opts_chunk$set(echo = TRUE,
 
 # First version August 13, 2021, updated August 23, 2021
 
-I learnt from notebooks shared by folks who ranked high in the challenge, and added two features (which, eventually, did not help). I also explored some other ML algorithms. Last, I tuned the parameters more efficiently with a clever grid-search algorithm. All in all, I slightly improved my score, but most importantly, I now have a clean template for further use. 
+Since my first post, I've been reading notebooks shared by folks who ranked high in the challenge, and added two features that they used. Eventually, these new predictors did not help (I must be doing something wrong). I also explored some other ML algorithms. Last, I tuned the parameters more efficiently with a clever grid-search algorithm. All in all, I slightly improved my score, but most importantly, I now have a clean template for further use. 
 
 # Motivation
 
@@ -261,7 +261,7 @@ xg_tune <- xg_wf %>%
 
 Visualize the results. 
 ```{r, fig.width = 15, fig.height = 10}
-autoplot(xg_tune)
+autoplot(xg_tune) + theme_light()
 ```
 
 Collect metrics. 
